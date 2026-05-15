@@ -4,6 +4,9 @@ package main
 // IMPORTS
 // ----------------------------------------------------------------------------
 import (
+	"fmt"
+	"ramix/grummi"
+
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
@@ -29,38 +32,24 @@ var myWindow fyne.Window
 var gameTable *fyne.Container
 var playerRack *fyne.Container
 var overlay *fyne.Container
+var statusMsg *widget.Label // Make statusMsg globally accessible
+var gameState grummi.GameState
+var myApp fyne.App
 
 // ----------------------------------------------------------------------------
 // main()
 // ----------------------------------------------------------------------------
 func main() {
-	myApp := app.New()
+	myApp = app.New()
 	myApp.Settings().SetTheme(&compactTheme{Theme: theme.DefaultTheme()})
 	myWindow = myApp.NewWindow("Ramix")
+	setMenu()
+
 	boardCellSize = fyne.NewSize(40, 52)
 	rackCellSize = fyne.NewSize(30, 39)
 
-	// --- 1. MENU CONFIGURATION ---
-	newItem := fyne.NewMenuItem("Nouvelle Partie", func() { /* Reset logic */ })
-	saveItem := fyne.NewMenuItem("Sauvegarder", func() { /* Save logic */ })
-	quitItem := fyne.NewMenuItem("Quitter", func() { /* Quit logic */ })
-
-	appearanceMenu := fyne.NewMenu("Affichage",
-		fyne.NewMenuItem("Thème Sombre", func() {
-			myApp.Settings().SetTheme(&compactTheme{Theme: theme.DarkTheme()})
-		}),
-		fyne.NewMenuItem("Thème Clair", func() {
-			myApp.Settings().SetTheme(&compactTheme{Theme: theme.LightTheme()})
-		}),
-	)
-
-	// Add it to your menu bar
-	mainMenu := fyne.NewMainMenu(
-		fyne.NewMenu("Fichier", newItem, saveItem, quitItem),
-		appearanceMenu, // Our new menu
-		fyne.NewMenu("Aide", fyne.NewMenuItem("À propos", func() {})),
-	)
-	myWindow.SetMainMenu(mainMenu)
+	gameState = grummi.InitializeGame(2)
+	gameState.CurrentPlayerID = 0 // Assuming player 0 is the human player
 
 	// Creation of simple grids
 	gameTable = container.New(layout.NewGridLayoutWithColumns(24))
@@ -99,8 +88,17 @@ func main() {
 	// --- BOTTOM AREA (Rack + Buttons) ---
 	// Put the buttons in a vertical column to the right of the rack
 	buttons := container.NewVBox(
-		widget.NewButton("Trier", func() { /* ... */ }),
-		widget.NewButton("Piocher", func() { /* ... */ }),
+		widget.NewButton("Valider", func() {
+		}),
+		widget.NewButton("Trier", func() { // Connect Sort button to grummi.SortTiles
+			grummi.SortTiles(gameState.Players[0].Hand)
+			refreshRack()
+		}),
+		widget.NewButton("Piocher", func() {
+			gameState.DrawTile()
+			refreshRack()
+			statusMsg.SetText(fmt.Sprintf("Pioché ! Il reste %d tuiles.", len(gameState.Remaining)))
+		}),
 		widget.NewButton("Annuler", func() { /* ... */ }),
 	)
 
@@ -114,8 +112,8 @@ func main() {
 	// HBox places elements side by side without extra space
 	// bottomArea := container.NewHBox(playerRack, buttons)
 
-	// 1. Create the label for messages (the bottom status bar)
-	statusMsg := widget.NewLabel("Prêt pour la partie !")
+	// 1. Create the label for messages (the bottom status bar) // Make statusMsg global
+	statusMsg = widget.NewLabel("Prêt pour la partie !")
 
 	// 2. Create a vertical container for the South area
 	// Use VBox to stack the elements
@@ -145,22 +143,61 @@ func main() {
 	// The overlay is an empty container that will cover the entire window
 	overlay = container.NewWithoutLayout()
 
-	// --- PLACE TILES ---
+	// --- PLACE TILES --- // Populate the rack from the game state
+	refreshRack()
+	// The final stack: the game underneath, the flying tiles above // Already done in previous step
+	finalStack := container.NewStack(content, overlay) // Already done in previous step
+	myWindow.SetContent(finalStack)                    // Already done in previous step
+	myWindow.Resize(fyne.NewSize(1100, 700))           // Already done in previous step
+	myWindow.ShowAndRun()                              // Already done in previous step
+}
 
-	// Place a "Green 13" on the first row, 5th slot of the board
-	// Index = (row * columns) + column -> (0 * 24) + 4 = 4
-	setTileAt(gameTable, 4, 13, "Green")
-	setTileAt(gameTable, 5, 13, "Red")
-	setTileAt(gameTable, 6, 13, "Blue")
-	setTileAt(gameTable, 7, 13, "Yellow")
+// ----------------------------------------------------------------------------
+// refreshRack()
+// ----------------------------------------------------------------------------
+// refreshRack clears the player's rack and repopulates it with tiles from the current game state.
+func refreshRack() {
+	// Clear the current rack display
+	for i := 0; i < len(playerRack.Objects); i++ {
+		wrapper := playerRack.Objects[i].(*fyne.Container)
+		cellStack := wrapper.Objects[0].(*fyne.Container)
+		if len(cellStack.Objects) > 1 {
+			delete(cellMap, cellStack.Objects[1]) // Remove the old tile from the cellMap
+			cellStack.Objects = cellStack.Objects[:1]
+			cellStack.Refresh()
+		}
+	}
 
-	// Place a "Joker" on the rack, row 2, slot 1
-	// Index = (1 * 20) + 0 = 20
-	setTileAt(playerRack, 7, 0, "Ivory")
+	// Add tiles from the player's hand
+	for i, tile := range gameState.Players[0].Hand {
+		setTileAt(playerRack, i, tile.Value, tile.Color)
+	}
+	playerRack.Refresh()
+}
 
-	// The final stack: the game underneath, the flying tiles above
-	finalStack := container.NewStack(content, overlay)
-	myWindow.SetContent(finalStack)
-	myWindow.Resize(fyne.NewSize(1100, 700))
-	myWindow.ShowAndRun()
+// ----------------------------------------------------------------------------
+// setMenu()
+// ----------------------------------------------------------------------------
+func setMenu() {
+	newItem := fyne.NewMenuItem("Nouvelle Partie", func() { /* Reset logic */ })
+	saveItem := fyne.NewMenuItem("Sauvegarder", func() { /* Save logic */ })
+	quitItem := fyne.NewMenuItem("Quitter", func() { /* Quit logic */ })
+	appearanceMenu := fyne.NewMenu("Affichage",
+		fyne.NewMenuItem("Thème Sombre", func() {
+			myApp.Settings().SetTheme(&compactTheme{Theme: theme.DarkTheme()})
+			myWindow.Content().Refresh()
+		}),
+		fyne.NewMenuItem("Thème Clair", func() {
+			myApp.Settings().SetTheme(&compactTheme{Theme: theme.LightTheme()})
+			myWindow.Content().Refresh()
+		}),
+	)
+
+	// Add it to your menu bar
+	mainMenu := fyne.NewMainMenu(
+		fyne.NewMenu("Fichier", newItem, saveItem, quitItem),
+		appearanceMenu, // Our new menu
+		fyne.NewMenu("Aide", fyne.NewMenuItem("À propos", func() {})),
+	)
+	myWindow.SetMainMenu(mainMenu)
 }
