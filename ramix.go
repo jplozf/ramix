@@ -10,6 +10,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
@@ -17,6 +18,10 @@ import (
 
 // ----------------------------------------------------------------------------
 // TYPES
+// ----------------------------------------------------------------------------
+
+// ----------------------------------------------------------------------------
+// CONSTANTS
 // ----------------------------------------------------------------------------
 
 // ----------------------------------------------------------------------------
@@ -40,10 +45,14 @@ var myApp fyne.App
 // main()
 // ----------------------------------------------------------------------------
 func main() {
-	myApp = app.New()
+	myApp = app.NewWithID(APP_ID)
 	myApp.Settings().SetTheme(&compactTheme{Theme: theme.DefaultTheme()})
-	myWindow = myApp.NewWindow("Ramix")
+	myWindow = myApp.NewWindow(APP_NAME)
 	setMenu()
+	myWindow.SetCloseIntercept(func() {
+		confirmExit()
+	})
+	readPreferences()
 
 	boardCellSize = fyne.NewSize(40, 52)
 	rackCellSize = fyne.NewSize(30, 39)
@@ -181,23 +190,68 @@ func refreshRack() {
 func setMenu() {
 	newItem := fyne.NewMenuItem("Nouvelle Partie", func() { /* Reset logic */ })
 	saveItem := fyne.NewMenuItem("Sauvegarder", func() { /* Save logic */ })
-	quitItem := fyne.NewMenuItem("Quitter", func() { /* Quit logic */ })
+	quitItem := fyne.NewMenuItem("Quitter", func() { confirmExit() })
 	appearanceMenu := fyne.NewMenu("Affichage",
 		fyne.NewMenuItem("Thème Sombre", func() {
 			myApp.Settings().SetTheme(&compactTheme{Theme: theme.DarkTheme()})
+			myApp.Preferences().SetString("AppTheme", "dark")
 			myWindow.Content().Refresh()
 		}),
 		fyne.NewMenuItem("Thème Clair", func() {
 			myApp.Settings().SetTheme(&compactTheme{Theme: theme.LightTheme()})
+			myApp.Preferences().SetString("AppTheme", "light")
 			myWindow.Content().Refresh()
 		}),
 	)
 
-	// Add it to your menu bar
+	// Add it to our menu bar
 	mainMenu := fyne.NewMainMenu(
 		fyne.NewMenu("Fichier", newItem, saveItem, quitItem),
 		appearanceMenu, // Our new menu
-		fyne.NewMenu("Aide", fyne.NewMenuItem("À propos", func() {})),
+		fyne.NewMenu("Aide", fyne.NewMenuItem("À propos", func() { showAbout(myWindow) })),
 	)
 	myWindow.SetMainMenu(mainMenu)
+}
+
+// ----------------------------------------------------------------------------
+// confirmExit()
+// ----------------------------------------------------------------------------
+func confirmExit() {
+	d := dialog.NewConfirm("Confirmation", "Quitter la partie en cours ?", func(confirm bool) {
+		if confirm {
+			myApp.Quit()
+		}
+	}, myWindow)
+	d.Show()
+}
+
+// ----------------------------------------------------------------------------
+// showAbout()
+// ----------------------------------------------------------------------------
+func showAbout(win fyne.Window) {
+	info := APP_NAME + "\n" +
+		"Version " + getFullVersion() + "\n\n" +
+		APP_DESCRIPTION + "\n\n" +
+		APP_URL + "\n\n" +
+		APP_COPYRIGHT
+	dialog.ShowInformation("À propos", info, win)
+}
+
+// ----------------------------------------------------------------------------
+// readPreferences()
+// ----------------------------------------------------------------------------
+func readPreferences() {
+	themePref := myApp.Preferences().StringWithFallback("AppTheme", "light")
+	if themePref == "dark" {
+		myApp.Settings().SetTheme(&compactTheme{Theme: theme.DarkTheme()})
+	} else {
+		myApp.Settings().SetTheme(&compactTheme{Theme: theme.LightTheme()})
+	}
+}
+
+// ****************************************************************************
+// getFullVersion()
+// ****************************************************************************
+func getFullVersion() string {
+	return fmt.Sprintf("%s.%s", MAJOR, GitVersion)
 }
