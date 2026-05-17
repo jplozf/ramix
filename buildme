@@ -7,6 +7,7 @@ GIT_STR="${MINOR}-${HASH}"
 echo "🔨 Embedding Git version : $GIT_STR"
 
 go build -ldflags "-X 'main.GitVersion=${GIT_STR}'" -o ramix
+# fyne package -icon ramix.png
 
 if [ $? -eq 0 ]; then
     echo "✅ Compilation successful"

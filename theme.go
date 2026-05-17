@@ -4,6 +4,8 @@ package main
 // IMPORTS
 // ----------------------------------------------------------------------------
 import (
+	"image/color"
+
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/theme"
 )
@@ -41,4 +43,19 @@ func (m compactTheme) Size(name fyne.ThemeSizeName) float32 {
 		return 1 // Reduces thickness of separators
 	}
 	return m.Theme.Size(name)
+}
+
+// ----------------------------------------------------------------------------
+// Color()
+// ----------------------------------------------------------------------------
+func (m *compactTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) color.Color {
+	if name == theme.ColorNamePrimary { // Button background color
+		if variant == theme.VariantDark {
+			return color.NRGBA{R: 195, G: 155, B: 85, A: 255}
+		} else {
+			return color.NRGBA{R: 30, G: 90, B: 50, A: 255}
+		}
+	}
+	// Otherwise, use default theme colors
+	return m.Theme.Color(name, variant)
 }

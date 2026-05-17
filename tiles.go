@@ -30,6 +30,7 @@ type HoverCell struct {
 	bg           *canvas.Rectangle
 	hoverColor   func(fyne.ThemeVariant) color.Color
 	defaultColor func(fyne.ThemeVariant) color.Color
+	strokeColor  func(fyne.ThemeVariant) color.Color
 	isHovered    bool
 }
 
@@ -46,18 +47,6 @@ type DragTile struct {
 // ----------------------------------------------------------------------------
 // VARS
 // ----------------------------------------------------------------------------
-var (
-	ColorBoardBackgroundDark  = color.NRGBA{R: 10, G: 60, B: 30, A: 255}
-	ColorBoardBackgroundLight = color.NRGBA{R: 140, G: 180, B: 150, A: 255}
-	ColorRummyRed             = color.NRGBA{R: 210, G: 90, B: 90, A: 255}
-	ColorRummyBlue            = color.NRGBA{R: 90, G: 130, B: 180, A: 255}
-	ColorRummyYellow          = color.NRGBA{R: 220, G: 170, B: 0, A: 255}
-	ColorRummyGreen           = color.NRGBA{R: 60, G: 140, B: 80, A: 255}
-	ColorRummyIvory           = color.NRGBA{R: 190, G: 180, B: 160, A: 255}
-	ColorIvoryLine            = color.NRGBA{R: 255, G: 255, B: 240, A: 255} // Liseré Ivoire
-	ColorTileStroke           = color.NRGBA{R: 190, G: 180, B: 160, A: 255} // Bordure des tuiles
-)
-
 var cellMap = make(map[fyne.CanvasObject]cellInfo)
 
 // ----------------------------------------------------------------------------
@@ -111,8 +100,6 @@ func renderTile(t *grummi.Tile) fyne.CanvasObject {
 func NewEmptySlot() fyne.CanvasObject {
 	bg := canvas.NewRectangle(ColorBoardBackgroundDark)
 
-	// Add a very thin and discrete border to see the grid
-	bg.StrokeColor = color.NRGBA{R: 220, G: 220, B: 220, A: 16}
 	bg.StrokeWidth = 1
 
 	defaultCol := func(v fyne.ThemeVariant) color.Color {
@@ -123,38 +110,46 @@ func NewEmptySlot() fyne.CanvasObject {
 	}
 	hoverCol := func(v fyne.ThemeVariant) color.Color {
 		if v == theme.VariantLight {
-			return color.NRGBA{R: 130, G: 210, B: 150, A: 255}
+			return ColorBoardCellHoverLight
 		}
-		return color.NRGBA{R: 20, G: 100, B: 50, A: 255}
+		return ColorBoardCellHoverDark
 	}
-	return NewHoverCell(bg, hoverCol, defaultCol)
+	strokeCol := func(v fyne.ThemeVariant) color.Color {
+		if v == theme.VariantLight {
+			return ColorBoardCellStrokeLight
+		}
+		return ColorBoardCellStrokeDark
+	}
+	return NewHoverCell(bg, hoverCol, defaultCol, strokeCol)
 }
 
 // ----------------------------------------------------------------------------
 // NewEmptyRackSlot()
 // ----------------------------------------------------------------------------
 func NewEmptyRackSlot() fyne.CanvasObject {
-	// bg := canvas.NewRectangle(color.NRGBA{R: 245, G: 222, B: 179, A: 255}) // Beech
-	// bg := canvas.NewRectangle(color.NRGBA{R: 222, G: 184, B: 135, A: 255}) // Pine
-	oak := color.NRGBA{R: 210, G: 180, B: 140, A: 255}
-	bg := canvas.NewRectangle(oak) // Oak
-	bg.StrokeColor = color.NRGBA{R: 180, G: 140, B: 100, A: 80}
+	bg := canvas.NewRectangle(color.Transparent)
 	bg.StrokeWidth = 2
 	bg.CornerRadius = 4
 
 	defaultCol := func(v fyne.ThemeVariant) color.Color {
 		if v == theme.VariantLight {
-			return color.NRGBA{R: 245, G: 222, B: 179, A: 255} // Beech/Light Wood
+			return ColorRackCellLight
 		}
-		return color.NRGBA{R: 210, G: 180, B: 140, A: 255} // Explicit Oak
+		return ColorRackCellDark
 	}
 	hoverCol := func(v fyne.ThemeVariant) color.Color {
 		if v == theme.VariantLight {
-			return color.NRGBA{R: 255, G: 245, B: 230, A: 255} // Cream
+			return ColorRackCellHoverLight // Cream
 		}
-		return color.NRGBA{R: 230, G: 210, B: 185, A: 255}
+		return ColorRackCellHoverDark
 	}
-	return NewHoverCell(bg, hoverCol, defaultCol)
+	strokeCol := func(v fyne.ThemeVariant) color.Color {
+		if v == theme.VariantLight {
+			return ColorRackStrokeLight
+		}
+		return ColorRackStrokeDark
+	}
+	return NewHoverCell(bg, hoverCol, defaultCol, strokeCol)
 }
 
 // ----------------------------------------------------------------------------
@@ -243,6 +238,9 @@ func NewDragTile(t *grummi.Tile, root *fyne.Container, parent *fyne.Container, g
 	return dt
 }
 
+// ----------------------------------------------------------------------------
+// CreateRenderer()
+// ----------------------------------------------------------------------------
 func (dt *DragTile) CreateRenderer() fyne.WidgetRenderer {
 	return widget.NewSimpleRenderer(renderTile(dt.tile))
 }
@@ -379,8 +377,8 @@ func findObjectAt(obj fyne.CanvasObject, pos fyne.Position) fyne.CanvasObject {
 // ----------------------------------------------------------------------------
 // NewHoverCell()
 // ----------------------------------------------------------------------------
-func NewHoverCell(bg *canvas.Rectangle, hover, def func(fyne.ThemeVariant) color.Color) *HoverCell {
-	hc := &HoverCell{bg: bg, hoverColor: hover, defaultColor: def}
+func NewHoverCell(bg *canvas.Rectangle, hover, def, stroke func(fyne.ThemeVariant) color.Color) *HoverCell {
+	hc := &HoverCell{bg: bg, hoverColor: hover, defaultColor: def, strokeColor: stroke}
 	hc.ExtendBaseWidget(hc)
 
 	// Initialize color
@@ -426,9 +424,15 @@ func (h *HoverCell) updateColor() {
 	} else {
 		h.bg.FillColor = h.defaultColor(variant)
 	}
+	if h.strokeColor != nil {
+		h.bg.StrokeColor = h.strokeColor(variant)
+	}
 	h.bg.Refresh()
 }
 
+// ----------------------------------------------------------------------------
+// MouseIn()
+// ----------------------------------------------------------------------------
 func (h *HoverCell) MouseIn(e *desktop.MouseEvent) {
 	h.isHovered = true
 	h.Refresh()
