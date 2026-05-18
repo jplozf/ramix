@@ -40,8 +40,11 @@ var gameTable *fyne.Container
 var playerRack *fyne.Container
 var overlay *fyne.Container
 var statusMsg *widget.Label
+var statusNames []*widget.Label
+var statusP1NameLabel *widget.Label
 var statusLabel *widget.Label
 var statusDrawLabel *widget.Label
+var statusTiles []*widget.Label
 var gameState grummi.GameState
 var myApp fyne.App
 var background *canvas.Rectangle
@@ -81,7 +84,6 @@ func main() {
 	totalTableSize := fyne.NewSize(tableWidth, tableHeight)
 
 	fixedTable := container.NewGridWrap(totalTableSize, gameTable)
-	centeredTable := container.NewCenter(fixedTable)
 
 	// The bottom area
 	aiLogEntry = widget.NewTextGrid()
@@ -124,12 +126,33 @@ func main() {
 	centeredBottom := container.NewBorder(nil, statusMsg, nil, nil, rackAssembly)
 
 	// The status area on the right
-	statusLabel = widget.NewLabel("TOUR : Joueur 1\nScore : 0")
-	statusDrawLabel = widget.NewLabel("PIOCHE : 0")
+	statusLabel = widget.NewLabelWithStyle("1", fyne.TextAlignTrailing, fyne.TextStyle{Bold: true})
+	statusDrawLabel = widget.NewLabelWithStyle("0", fyne.TextAlignTrailing, fyne.TextStyle{Bold: true})
+	statusP1NameLabel = widget.NewLabelWithStyle("P1", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+	statusTiles = make([]*widget.Label, 4)
+	for i := range 4 {
+		statusTiles[i] = widget.NewLabelWithStyle("-", fyne.TextAlignTrailing, fyne.TextStyle{Bold: true})
+	}
+
+	// shrink wraps an object in a fixed-height container to force tighter row spacing.
+	shrink := func(obj fyne.CanvasObject, width float32) fyne.CanvasObject {
+		return container.NewGridWrap(fyne.NewSize(width, 20), obj)
+	}
+
+	// Use FormLayout to align labels and values in two consistent columns
+	statusDetails := container.New(layout.NewFormLayout(),
+		shrink(widget.NewLabel("Tour"), 100), shrink(statusLabel, 40),
+		shrink(widget.NewLabel("Pioche"), 100), shrink(statusDrawLabel, 40),
+		shrink(statusP1NameLabel, 100), shrink(statusTiles[0], 40),
+		shrink(widget.NewLabel("AI#1"), 100), shrink(statusTiles[1], 40),
+		shrink(widget.NewLabel("AI#2"), 100), shrink(statusTiles[2], 40),
+		shrink(widget.NewLabel("AI#3"), 100), shrink(statusTiles[3], 40),
+	)
+
+	statusTitle := widget.NewLabelWithStyle("STATUS", fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
 	statusArea := container.NewVBox(
-		widget.NewLabelWithStyle("STATUS", fyne.TextAlignCenter, fyne.TextStyle{Bold: true}),
-		statusLabel,
-		statusDrawLabel,
+		container.NewCenter(shrink(statusTitle, 140)),
+		statusDetails,
 	)
 
 	refreshRack()
@@ -139,10 +162,10 @@ func main() {
 	overlay = container.NewWithoutLayout()
 	background = canvas.NewRectangle(color.Transparent)
 
-	// Hierarchy fix: By nesting the borders, we ensure centeredBottom (the bottom bar)
-	// stays to the left of the statusArea (the sidebar) instead of spanning the full window width.
-	contentArea := container.NewBorder(nil, centeredBottom, nil, nil, centeredTable)
-	mainInterface := container.NewBorder(nil, nil, nil, statusArea, contentArea)
+	// Group the table and status area together in an HBox to remove the gap between them,
+	// then center the combined assembly in the main window area.
+	tableAndStatus := container.NewCenter(container.NewHBox(fixedTable, statusArea))
+	mainInterface := container.NewBorder(nil, centeredBottom, nil, nil, tableAndStatus)
 
 	windowContent := container.NewStack(background, mainInterface)
 	finalStack := container.NewStack(windowContent, overlay)
@@ -189,7 +212,7 @@ func refreshRack() {
 	for i, tile := range gameState.Players[0].Hand {
 		setTileAt(playerRack, i, tile.Value, tile.Color)
 	}
-	statusDrawLabel.SetText(fmt.Sprintf("PIOCHE : %d", len(gameState.Remaining)))
+	updateStatusTiles()
 	playerRack.Refresh()
 }
 
@@ -273,6 +296,26 @@ func getFullVersion() string {
 }
 
 // ****************************************************************************
+// updateStatusTiles()
+// ****************************************************************************
+func updateStatusTiles() {
+	if len(gameState.Players) > 0 {
+		statusLabel.SetText(fmt.Sprintf("%d", gameState.TurnNumber)) // Display turn number
+		statusP1NameLabel.SetText(gameState.Players[0].Name)
+		statusDrawLabel.SetText(fmt.Sprintf("%d", len(gameState.Remaining)))
+	}
+
+	for i := 0; i < 4; i++ {
+		if i < len(gameState.Players) {
+			p := gameState.Players[i]
+			statusTiles[i].SetText(fmt.Sprintf("%d", len(p.Hand)))
+		} else {
+			statusTiles[i].SetText("-")
+		}
+	}
+}
+
+// ****************************************************************************
 // SetStatus()
 // ****************************************************************************
 func SetStatus(msg string) {
@@ -289,7 +332,7 @@ func showNewGameDialog(win fyne.Window, startCallback func(playerName string, ai
 	nameEntry.SetPlaceHolder("Entrez votre nom...")
 
 	// Optionnel: On peut recharger le dernier nom utilisé depuis les préférences
-	nameEntry.SetText(fyne.CurrentApp().Preferences().StringWithFallback("PlayerName", "Joueur 1"))
+	nameEntry.SetText(fyne.CurrentApp().Preferences().StringWithFallback("PlayerName", "Humain"))
 
 	// 2. Sélecteur pour le nombre d'adversaires (de 1 à 3)
 	aiSelect := widget.NewSelect([]string{"1", "2", "3"}, nil)
@@ -298,7 +341,7 @@ func showNewGameDialog(win fyne.Window, startCallback func(playerName string, ai
 	// 3. Mise en page du formulaire
 	form := widget.NewForm(
 		widget.NewFormItem("Votre Nom :", nameEntry),
-		widget.NewFormItem("Adversaires IA :", aiSelect),
+		widget.NewFormItem("Adversaires AI :", aiSelect),
 	)
 
 	// 4. Création du dialogue avec boutons Confirmer/Annuler
@@ -320,7 +363,7 @@ func showNewGameDialog(win fyne.Window, startCallback func(playerName string, ai
 
 				nomJoueur := nameEntry.Text
 				if nomJoueur == "" {
-					nomJoueur = "Joueur 1" // Sécurité si le nom est vide
+					nomJoueur = "Humain" // Sécurité si le nom est vide
 				}
 
 				// On sauvegarde le nom pour la prochaine fois
@@ -338,14 +381,12 @@ func showNewGameDialog(win fyne.Window, startCallback func(playerName string, ai
 // onNewGame()
 // ****************************************************************************
 func onNewGame(name string, ais int) {
-	fmt.Printf("Lancement du jeu pour %s contre %d IA\n", name, ais)
+	gameState = grummi.InitializeGame(ais + 1)
+	gameState.Players[0].Name = name
+	gameState.CurrentPlayerID = 0
 
-	// 1. Initialiser le deck de tuiles
-	// 2. Distribuer les tuiles au joueur (en utilisant son 'name')
-	// 3. Créer les mains cachées pour les 'ais' adversaires
-	// 4. Mettre à jour l'affichage de la réglette et du statut
-
-	// Exemple : updateStatusBar(fmt.Sprintf("Tour de %s", name))
+	refreshRack()
+	SetStatus(fmt.Sprintf("Nouvelle partie : %s vs %d AI", name, ais))
 }
 
 // ****************************************************************************

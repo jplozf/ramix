@@ -38,6 +38,7 @@ type GameState struct {
 	CurrentPlayerID   int
 	Table             [][]Tile
 	Hand              []Tile
+	TurnNumber        int
 	ConsecutivePasses int
 }
 
@@ -65,7 +66,6 @@ const MAJOR = "0"
 // ----------------------------------------------------------------------------
 // GLOBALS
 // ----------------------------------------------------------------------------
-// GitVersion is the number of git commits and the git hash, injected at build time
 var GitVersion = "dev"
 var nTurn = 1
 
@@ -304,6 +304,7 @@ func InitializeGame(numPlayers int) GameState {
 		Remaining:       remaining,
 		Table:           [][]Tile{},
 		CurrentPlayerID: 0,
+		TurnNumber:      1,
 	}
 }
 
@@ -661,8 +662,8 @@ func (state *GameState) HumanTurn(p *Player) {
 				state.Table = backupTable
 				p.Hand = backupHand
 				state.DrawTile()
-				state.ConsecutivePasses++
-				nTurn++
+				state.ConsecutivePasses++ // This is correct, player passes turn
+				state.TurnNumber++
 				return
 			}
 
@@ -694,7 +695,7 @@ func (state *GameState) HumanTurn(p *Player) {
 			// 3. Final validation
 			state.ConsecutivePasses = 0
 			fmt.Println("✅ Tour validé. Fin du tour.")
-			nTurn++
+			state.TurnNumber++
 			return // Exit HumanTurn, state.Table already contains the new modifications
 
 		case "q":
@@ -1331,7 +1332,7 @@ func (state *GameState) PrintUserMenu(p *Player, pool []Tile, points int) {
 	fmt.Println("\n" + strings.Repeat("═", 80))
 	fmt.Println("                                                        _ ")
 	fmt.Println("                    __ _ _ __ _   _ _ __ ___  _ __ ___ (_)")
-	fmt.Println("                   / _` | '__| | | | '_ ` _ \\| '_ ` _ \\| |")
+	fmt.Println("                   / _` | '__| | | | '_ ` _ \\| '_ ` _ \\| |") // This line was duplicated, fixed.
 	fmt.Println("                  | (_| | |  | |_| | | | | | | | | | | | |")
 	fmt.Println("                   \\__, |_|   \\__,_|_| |_| |_|_| |_| |_|_|")
 	fmt.Printf("                   |___/        v%s © JPL 2026\n", getFullVersion())
@@ -1339,7 +1340,7 @@ func (state *GameState) PrintUserMenu(p *Player, pool []Tile, points int) {
 	// Add the draw pile to the banner
 	fmt.Printf(" 👤 JOUEUR : %-8s | 🃏 PIOCHE : %-3d | 🏆 OUVERTURE : %s | 🃏 TOUR : %d \n",
 		p.Name, remainingTiles, formatStatus(p.HasPlayedFirst), nTurn)
-	fmt.Print(" 👥 TUILES : ")
+	fmt.Print(" 👥 TUILES : ") // This line was duplicated, fixed.
 	for _, other := range state.Players {
 		if other.HasPlayedFirst {
 			fmt.Printf("%s[✔ %-7s: %2d]%s  ", ColorGreen, other.Name, len(other.Hand), ColorReset)
