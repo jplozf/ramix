@@ -372,16 +372,18 @@ func FindBestHandLayout(hand []Tile, hoardJokers bool) ([][]Tile, []Tile) {
 		if len(possibilities) == 0 {
 			// If hoarding, we prioritize keeping jokers.
 			// Otherwise, we just minimize the total count (classic solver).
-			isBetter := false
+			totalLeft := realLeft + jokerLeft
+			minTotalLeft := minRealLeft + maxJokerLeft
+			if maxJokerLeft == -1 {
+				minTotalLeft = 999
+			}
+
+			isBetter := totalLeft < minTotalLeft
 			if hoardJokers {
 				isBetter = (realLeft < minRealLeft) || (realLeft == minRealLeft && jokerLeft > maxJokerLeft)
-			} else {
-				isBetter = (realLeft + jokerLeft) < (minRealLeft + (func() int {
-					if maxJokerLeft < 0 {
-						return 0
-					}
-					return maxJokerLeft
-				}()))
+			} else if totalLeft == minTotalLeft {
+				// Tie-breaker: minimize hand value
+				isBetter = CalculateHandPoints(currentHand) < CalculateHandPoints(remainingHand)
 			}
 
 			if isBetter {
@@ -780,72 +782,89 @@ func parseIndices(input string) []int {
 // ----------------------------------------------------------------------------
 func (state *GameState) IATurn(currentPlayer *Player) {
 	fmt.Printf("\n🤖 %s réfléchit...\n", currentPlayer.Name)
-	initialHandSize := len(currentPlayer.Hand)
+	initialHandCount := len(currentPlayer.Hand)
+	initialJokerCount := 0
+	for _, t := range currentPlayer.Hand {
+		if t.Value == 0 {
+			initialJokerCount++
+		}
+	}
 
 	// Save current state for potential rollback if the move is invalid or doesn't improve the hand
 	backupTable := cloneTable(state.Table)
 	backupHand := cloneHand(currentPlayer.Hand)
 	backupHasPlayedFirst := currentPlayer.HasPlayedFirst
 
-	// 1. If already opened, try to liberate jokers and append single tiles
-	if currentPlayer.HasPlayedFirst {
-		changed := true
-		for changed {
-			changed = false
-			if state.LiberateJokers(currentPlayer) {
-				changed = true
-			}
-			if state.TrySplitLongCombos() {
-				changed = true
-			}
-			if state.TryAppendToTable(currentPlayer, false) {
-				changed = true
-			}
-			if state.TrySplitAndInsert(currentPlayer) {
-				changed = true
+	for {
+		progress := false
+
+		// 1. Table manipulations (if already opened)
+		if currentPlayer.HasPlayedFirst {
+			changed := true
+			for changed {
+				changed = false
+				if state.TryMergeCombos() {
+					changed = true
+					progress = true
+				}
+				if state.LiberateJokers(currentPlayer) {
+					changed = true
+					progress = true
+				}
+				if state.TryAppendToTable(currentPlayer, false) {
+					changed = true
+					progress = true
+				}
+				if state.TrySplitAndInsert(currentPlayer) {
+					changed = true
+					progress = true
+				}
+				if state.TryStealFromTable(currentPlayer) {
+					changed = true
+					progress = true
+				}
 			}
 		}
-	}
 
-	// 2. The AI analyzes its hand to find new complete combinations
-	// Pass 1: Try to play while hoarding Jokers
-	bestLayout, remainingHand := FindBestHandLayout(currentPlayer.Hand, true)
+		// 2. New combinations from hand
+		bestLayout, remainingHand := FindBestHandLayout(currentPlayer.Hand, true)
 
-	calculatePoints := func(layout [][]Tile) int {
-		pts := 0
-		for _, combo := range layout {
-			pts += GetComboValueWithJoker(combo, IsValidRun(combo))
+		calculatePoints := func(layout [][]Tile) int {
+			pts := 0
+			for _, combo := range layout {
+				pts += GetComboValueWithJoker(combo, IsValidRun(combo))
+			}
+			return pts
 		}
-		return pts
-	}
-	totalProposed := calculatePoints(bestLayout)
 
-	canPlayNew := false
-	if !currentPlayer.HasPlayedFirst {
-		if totalProposed >= 30 {
-			canPlayNew = true
-			currentPlayer.HasPlayedFirst = true
-			fmt.Printf("⭐ %s : Première pose validée avec %d points !\n", currentPlayer.Name, totalProposed)
-		} else {
-			// Pass 2: If we can't open by hoarding, try using Jokers aggressively
-			aggLayout, aggRemaining := FindBestHandLayout(currentPlayer.Hand, false)
-			if calculatePoints(aggLayout) >= 30 {
-				bestLayout = aggLayout
-				remainingHand = aggRemaining
+		canPlayNew := false
+		if !currentPlayer.HasPlayedFirst {
+			if calculatePoints(bestLayout) >= 30 {
 				canPlayNew = true
 				currentPlayer.HasPlayedFirst = true
-				fmt.Printf("⭐ %s : Ouverture validée avec Joker (%d points) !\n", currentPlayer.Name, calculatePoints(aggLayout))
+				fmt.Printf("⭐ %s : Ouverture validée (%d pts) !\n", currentPlayer.Name, calculatePoints(bestLayout))
+			} else {
+				aggLayout, aggRemaining := FindBestHandLayout(currentPlayer.Hand, false)
+				if calculatePoints(aggLayout) >= 30 {
+					bestLayout, remainingHand = aggLayout, aggRemaining
+					canPlayNew = true
+					currentPlayer.HasPlayedFirst = true
+					fmt.Printf("⭐ %s : Ouverture validée avec Joker (%d pts) !\n", currentPlayer.Name, calculatePoints(aggLayout))
+				}
 			}
-		}
-	} else {
-		if len(bestLayout) > 0 {
+		} else if len(bestLayout) > 0 {
 			canPlayNew = true
 		}
-	}
 
-	if canPlayNew {
-		state.Table = append(state.Table, bestLayout...)
-		currentPlayer.Hand = remainingHand
+		if canPlayNew {
+			state.Table = append(state.Table, bestLayout...)
+			currentPlayer.Hand = remainingHand
+			progress = true
+		}
+
+		if !progress {
+			break
+		}
 	}
 
 	// Final cleanup: try appending any remaining tiles, now including Jokers
@@ -853,8 +872,15 @@ func (state *GameState) IATurn(currentPlayer *Player) {
 		state.TryAppendToTable(currentPlayer, true)
 	}
 
-	// 3. Final check: did the hand size decrease?
-	if len(currentPlayer.Hand) < initialHandSize {
+	// 3. Validation: hand decreased or a Joker was swapped in
+	currentJokerCount := 0
+	for _, t := range currentPlayer.Hand {
+		if t.Value == 0 {
+			currentJokerCount++
+		}
+	}
+
+	if len(currentPlayer.Hand) < initialHandCount || currentJokerCount > initialJokerCount {
 		state.ConsecutivePasses = 0
 		time.Sleep(1 * time.Second) // Pause so the player can see the AI's moves
 	} else {
@@ -907,32 +933,6 @@ func (state *GameState) TryAppendToTable(p *Player, allowJokers bool) bool {
 		}
 	}
 	return playedAtLeastOne
-}
-
-// ****************************************************************************
-// TrySplitLongCombos()
-// ****************************************************************************
-// TrySplitLongCombos looks for runs of 6+ tiles and splits them into two combinations.
-// This creates more "ends" on the table for future tiles to be attached to.
-func (state *GameState) TrySplitLongCombos() bool {
-	for i, combo := range state.Table {
-		// Groups are max 4, so only runs can be 6+.
-		if len(combo) >= 6 {
-			// Try splitting at points that leave at least 3 tiles on each side.
-			for k := 3; k <= len(combo)-3; k++ {
-				part1 := append(Combination(nil), combo[:k]...)
-				part2 := append(Combination(nil), combo[k:]...)
-
-				if IsValidCombination(part1) && IsValidCombination(part2) {
-					state.Table = append(state.Table[:i], state.Table[i+1:]...)
-					state.Table = append(state.Table, part1, part2)
-					fmt.Printf("🤖 Scission d'une longue combinaison (%d tuiles) en deux.\n", len(combo))
-					return true
-				}
-			}
-		}
-	}
-	return false
 }
 
 // ****************************************************************************
@@ -1107,6 +1107,63 @@ func GetComboValueWithJoker(combo Combination, isRun bool) int {
 		jokers--
 	}
 	return total
+}
+
+// ****************************************************************************
+// TryMergeCombos()
+// ****************************************************************************
+// TryMergeCombos looks for runs or groups on the table that can be merged.
+func (state *GameState) TryMergeCombos() bool {
+	for i := 0; i < len(state.Table); i++ {
+		for j := i + 1; j < len(state.Table); j++ {
+			merged := append(Combination(nil), state.Table[i]...)
+			merged = append(merged, state.Table[j]...)
+			SortTiles(merged)
+			if IsValidCombination(merged) {
+				state.Table[i] = merged
+				state.Table = append(state.Table[:j], state.Table[j+1:]...)
+				fmt.Println("🤖 Fusion de deux combinaisons sur la table.")
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// ****************************************************************************
+// TryStealFromTable()
+// ****************************************************************************
+// TryStealFromTable attempts to borrow a tile from an existing table set (>3 tiles)
+// to form a new combination using 2 tiles from the AI's hand.
+func (state *GameState) TryStealFromTable(p *Player) bool {
+	for i := 0; i < len(state.Table); i++ {
+		combo := state.Table[i]
+		if len(combo) <= 3 {
+			continue
+		}
+		for k := 0; k < len(combo); k++ {
+			tileToSteal := combo[k]
+			remainder := append(Combination(nil), combo[:k]...)
+			remainder = append(remainder, combo[k+1:]...)
+			if IsValidCombination(remainder) {
+				for h1 := 0; h1 < len(p.Hand); h1++ {
+					for h2 := h1 + 1; h2 < len(p.Hand); h2++ {
+						testCombo := Combination{tileToSteal, p.Hand[h1], p.Hand[h2]}
+						SortTiles(testCombo)
+						if IsValidCombination(testCombo) {
+							state.Table[i] = remainder
+							state.Table = append(state.Table, testCombo)
+							t1, t2 := p.Hand[h1], p.Hand[h2]
+							p.Hand = removeTiles(p.Hand, Combination{t1, t2})
+							fmt.Printf("🤖 %s utilise %s de la table avec deux tuiles de sa main.\n", p.Name, FormatTile(tileToSteal))
+							return true
+						}
+					}
+				}
+			}
+		}
+	}
+	return false
 }
 
 // ----------------------------------------------------------------------------
