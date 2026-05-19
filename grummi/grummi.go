@@ -781,7 +781,7 @@ func parseIndices(input string) []int {
 // IATurn()
 // ----------------------------------------------------------------------------
 func (state *GameState) IATurn(currentPlayer *Player) {
-	fmt.Printf("\n🤖 %s réfléchit...\n", currentPlayer.Name)
+	fmt.Println(T("ai_thinking", currentPlayer.Name))
 	initialHandCount := len(currentPlayer.Hand)
 	initialJokerCount := 0
 	for _, t := range currentPlayer.Hand {
@@ -1122,7 +1122,7 @@ func (state *GameState) TryMergeCombos() bool {
 			if IsValidCombination(merged) {
 				state.Table[i] = merged
 				state.Table = append(state.Table[:j], state.Table[j+1:]...)
-				fmt.Println("🤖 Fusion de deux combinaisons sur la table.")
+				fmt.Println(T("ai_merge"))
 				return true
 			}
 		}

@@ -175,7 +175,7 @@ func main() {
 	myWindow.SetContent(finalStack)
 	myWindow.Resize(fyne.NewSize(1100, 700))
 
-	SetStatus("Bienvenue")
+	SetStatus(grummi.T("status_welcome"))
 	showNewGameDialog(myWindow, onNewGame)
 	myWindow.ShowAndRun()
 }
@@ -220,18 +220,18 @@ func refreshRack() {
 // setMenu()
 // ----------------------------------------------------------------------------
 func setMenu() {
-	newItem := fyne.NewMenuItem("Nouvelle Partie", func() { showNewGameDialog(myWindow, onNewGame) })
-	saveItem := fyne.NewMenuItem("Sauvegarder", func() { /* Save logic */ })
-	quitItem := fyne.NewMenuItem("Quitter", func() { confirmExit() })
-	appearanceMenu := fyne.NewMenu("Affichage",
-		fyne.NewMenuItem("Thème Sombre", func() {
+	newItem := fyne.NewMenuItem(grummi.T("menu_new_game"), func() { showNewGameDialog(myWindow, onNewGame) })
+	saveItem := fyne.NewMenuItem(grummi.T("menu_save"), func() { /* Save logic */ })
+	quitItem := fyne.NewMenuItem(grummi.T("menu_quit"), func() { confirmExit() })
+	appearanceMenu := fyne.NewMenu(grummi.T("menu_display"),
+		fyne.NewMenuItem(grummi.T("menu_theme_dark"), func() {
 			SetStatus("Application du thème sombre")
 			myApp.Settings().SetTheme(&compactTheme{Theme: theme.DarkTheme()})
 			myApp.Preferences().SetString("AppTheme", "dark")
 			updateBackgroundColor()
 			myWindow.Content().Refresh()
 		}),
-		fyne.NewMenuItem("Thème Clair", func() {
+		fyne.NewMenuItem(grummi.T("menu_theme_light"), func() {
 			SetStatus("Application du thème clair")
 			myApp.Settings().SetTheme(&compactTheme{Theme: theme.LightTheme()})
 			myApp.Preferences().SetString("AppTheme", "light")
@@ -240,10 +240,26 @@ func setMenu() {
 		}),
 	)
 
+	languageMenu := fyne.NewMenu(grummi.T("menu_language"),
+		fyne.NewMenuItem("English", func() {
+			grummi.SetLanguage("en")
+			myApp.Preferences().SetString("AppLanguage", "en")
+			SetStatus(grummi.T("status_lang_changed", "English"))
+			setMenu() // Refresh menu labels
+		}),
+		fyne.NewMenuItem("Français", func() {
+			grummi.SetLanguage("fr")
+			myApp.Preferences().SetString("AppLanguage", "fr")
+			SetStatus(grummi.T("status_lang_changed", "Français"))
+			setMenu() // Refresh menu labels
+		}),
+	)
+
 	// Add it to our menu bar
 	mainMenu := fyne.NewMainMenu(
-		fyne.NewMenu("Fichier", newItem, saveItem, quitItem),
+		fyne.NewMenu(grummi.T("menu_file"), newItem, saveItem, quitItem),
 		appearanceMenu, // Our new menu
+		languageMenu,
 		fyne.NewMenu("Aide", fyne.NewMenuItem("À propos", func() { showAbout(myWindow) })),
 	)
 	myWindow.SetMainMenu(mainMenu)
@@ -280,6 +296,8 @@ func showAbout(win fyne.Window) {
 // ----------------------------------------------------------------------------
 func readPreferences() {
 	SetStatus("Lecture des préférences")
+	langPref := myApp.Preferences().StringWithFallback("AppLanguage", "fr")
+	grummi.SetLanguage(langPref)
 	themePref := myApp.Preferences().StringWithFallback("AppTheme", "light")
 	if themePref == "dark" {
 		myApp.Settings().SetTheme(&compactTheme{Theme: theme.DarkTheme()})
@@ -340,16 +358,16 @@ func showNewGameDialog(win fyne.Window, startCallback func(playerName string, ai
 
 	// 3. Mise en page du formulaire
 	form := widget.NewForm(
-		widget.NewFormItem("Votre Nom :", nameEntry),
-		widget.NewFormItem("Adversaires AI :", aiSelect),
+		widget.NewFormItem(grummi.T("label_your_name"), nameEntry),
+		widget.NewFormItem(grummi.T("label_ai_opponents"), aiSelect),
 	)
 
 	// 4. Création du dialogue avec boutons Confirmer/Annuler
 	dialog.ShowCustomConfirm(
-		"Nouvelle Partie", // Titre
-		"Démarrer",        // Bouton de validation
-		"Annuler",         // Bouton d'annulation
-		form,              // Le contenu du formulaire
+		grummi.T("dialog_new_game_title"), // Titre
+		grummi.T("btn_start"),             // Bouton de validation
+		grummi.T("btn_cancel"),            // Bouton d'annulation
+		form,                              // Le contenu du formulaire
 		func(confirmed bool) {
 			if confirmed {
 				// On convertit le choix de l'IA en entier
