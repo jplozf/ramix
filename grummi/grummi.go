@@ -22,6 +22,10 @@ type Tile struct {
 	Color Color
 }
 
+// Logger interface for external logging (e.g., UI)
+type Logger interface {
+	Log(format string, args ...interface{})
+}
 type Player struct {
 	ID             int
 	Hand           []Tile
@@ -40,6 +44,14 @@ type GameState struct {
 	Hand              []Tile
 	TurnNumber        int
 	ConsecutivePasses int
+	Logger            Logger // Logger for UI messages
+}
+
+// StdOutLogger is a default logger that prints to the console
+type StdOutLogger struct{}
+
+func (l *StdOutLogger) Log(format string, args ...interface{}) {
+	fmt.Printf(format+"\n", args...)
 }
 
 // ----------------------------------------------------------------------------
@@ -85,7 +97,7 @@ func main() {
 		fmt.Println("Le nombre de joueurs doit être entre 2 et 4.")
 		return
 	}
-	game := InitializeGame(numPlayers)
+	game := InitializeGame(numPlayers, &StdOutLogger{})
 	game.CurrentPlayerID = game.DetermineFirstPlayer()
 
 	for {
@@ -290,7 +302,7 @@ func dealTiles(tiles []Tile, numPlayers int) ([]Player, []Tile) {
 // ----------------------------------------------------------------------------
 // InitializeGame()
 // ----------------------------------------------------------------------------
-func InitializeGame(numPlayers int) GameState {
+func InitializeGame(numPlayers int, logger Logger) GameState {
 	if numPlayers < 2 || numPlayers > 4 {
 		panic("Le nombre de joueurs doit être entre 2 et 4.")
 	}
@@ -305,6 +317,7 @@ func InitializeGame(numPlayers int) GameState {
 		Table:           [][]Tile{},
 		CurrentPlayerID: 0,
 		TurnNumber:      1,
+		Logger:          logger,
 	}
 }
 
@@ -413,7 +426,7 @@ func FindBestHandLayout(hand []Tile, hoardJokers bool) ([][]Tile, []Tile) {
 // ----------------------------------------------------------------------------
 func (state *GameState) DrawTile() {
 	if len(state.Remaining) == 0 {
-		fmt.Println("La pioche est vide !")
+		state.Logger.Log("La pioche est vide !")
 		return
 	}
 
@@ -425,7 +438,7 @@ func (state *GameState) DrawTile() {
 	currentPlayer := &state.Players[state.CurrentPlayerID]
 	currentPlayer.Hand = append(currentPlayer.Hand, tile)
 
-	fmt.Printf("Joueur %d pioche une tuile.\n", currentPlayer.ID)
+	state.Logger.Log("Joueur %d pioche une tuile.", currentPlayer.ID)
 }
 
 // ----------------------------------------------------------------------------
@@ -722,7 +735,7 @@ func (state *GameState) DetermineFirstPlayer() int {
 	// Draw a number between 0 and number of players - 1
 	firstPlayerIndex := rand.Intn(len(state.Players))
 
-	fmt.Printf("\n🎲 Tirage au sort... C'est %s qui commence !\n", state.Players[firstPlayerIndex].Name)
+	state.Logger.Log("🎲 Tirage au sort... C'est %s qui commence !", state.Players[firstPlayerIndex].Name)
 	// Leave a short pause for suspense
 	time.Sleep(2 * time.Second)
 
@@ -781,7 +794,7 @@ func parseIndices(input string) []int {
 // IATurn()
 // ----------------------------------------------------------------------------
 func (state *GameState) IATurn(currentPlayer *Player) {
-	fmt.Println(T("ai_thinking", currentPlayer.Name))
+	state.Logger.Log(T("ai_thinking", currentPlayer.Name))
 	initialHandCount := len(currentPlayer.Hand)
 	initialJokerCount := 0
 	for _, t := range currentPlayer.Hand {
@@ -842,14 +855,14 @@ func (state *GameState) IATurn(currentPlayer *Player) {
 			if calculatePoints(bestLayout) >= 30 {
 				canPlayNew = true
 				currentPlayer.HasPlayedFirst = true
-				fmt.Printf("⭐ %s : Ouverture validée (%d pts) !\n", currentPlayer.Name, calculatePoints(bestLayout))
+				state.Logger.Log("⭐ %s : Ouverture validée (%d pts) !", currentPlayer.Name, calculatePoints(bestLayout))
 			} else {
 				aggLayout, aggRemaining := FindBestHandLayout(currentPlayer.Hand, false)
 				if calculatePoints(aggLayout) >= 30 {
 					bestLayout, remainingHand = aggLayout, aggRemaining
 					canPlayNew = true
 					currentPlayer.HasPlayedFirst = true
-					fmt.Printf("⭐ %s : Ouverture validée avec Joker (%d pts) !\n", currentPlayer.Name, calculatePoints(aggLayout))
+					state.Logger.Log("⭐ %s : Ouverture validée avec Joker (%d pts) !", currentPlayer.Name, calculatePoints(aggLayout))
 				}
 			}
 		} else if len(bestLayout) > 0 {
@@ -858,7 +871,7 @@ func (state *GameState) IATurn(currentPlayer *Player) {
 
 		if canPlayNew {
 			state.Table = append(state.Table, bestLayout...)
-			currentPlayer.Hand = remainingHand
+			currentPlayer.Hand = remainingHand // Update hand after playing
 			progress = true
 		}
 
@@ -882,14 +895,14 @@ func (state *GameState) IATurn(currentPlayer *Player) {
 
 	if len(currentPlayer.Hand) < initialHandCount || currentJokerCount > initialJokerCount {
 		state.ConsecutivePasses = 0
-		time.Sleep(1 * time.Second) // Pause so the player can see the AI's moves
+		state.Logger.Log("🤖 %s a joué son tour.", currentPlayer.Name)
 	} else {
 		// Rollback if no progress was made (ensures AI doesn't keep "stolen" jokers without playing)
 		state.Table = backupTable
 		currentPlayer.Hand = backupHand
 		currentPlayer.HasPlayedFirst = backupHasPlayedFirst
 		state.DrawTile()
-		state.ConsecutivePasses++
+		state.ConsecutivePasses++ // This is correct, AI passes turn
 	}
 }
 
@@ -923,7 +936,7 @@ func (state *GameState) TryAppendToTable(p *Player, allowJokers bool) bool {
 					p.Hand = append(p.Hand[:i], p.Hand[i+1:]...)
 					playedAtLeastOne = true
 					modified = true
-					fmt.Printf("🤖 %s ajoute %s à une combinaison sur la table.\n", p.Name, FormatTile(tile))
+					state.Logger.Log("🤖 %s ajoute %s à une combinaison sur la table.", p.Name, FormatTile(tile))
 					break
 				}
 			}
@@ -966,8 +979,8 @@ func (state *GameState) TrySplitAndInsert(p *Player) bool {
 						state.Table = append(state.Table[:i], state.Table[i+1:]...)
 						state.Table = append(state.Table, test1, part2)
 						// Remove tile from hand
-						p.Hand = append(p.Hand[:hIdx], p.Hand[hIdx+1:]...)
-						fmt.Printf("🤖 %s scinde une combinaison pour insérer %s.\n", p.Name, FormatTile(handTile))
+						p.Hand = append(p.Hand[:hIdx], p.Hand[hIdx+1:]...) // Remove the tile from the hand
+						state.Logger.Log("🤖 %s scinde une combinaison pour insérer %s.", p.Name, FormatTile(handTile))
 						return true
 					}
 				}
@@ -981,8 +994,8 @@ func (state *GameState) TrySplitAndInsert(p *Player) bool {
 						state.Table = append(state.Table[:i], state.Table[i+1:]...)
 						state.Table = append(state.Table, part1, test2)
 						// Remove tile from hand
-						p.Hand = append(p.Hand[:hIdx], p.Hand[hIdx+1:]...)
-						fmt.Printf("🤖 %s scinde une combinaison pour insérer %s.\n", p.Name, FormatTile(handTile))
+						p.Hand = append(p.Hand[:hIdx], p.Hand[hIdx+1:]...) // Remove the tile from the hand
+						state.Logger.Log("🤖 %s scinde une combinaison pour insérer %s.", p.Name, FormatTile(handTile))
 						return true
 					}
 				}
@@ -1029,8 +1042,8 @@ func (state *GameState) LiberateJokers(p *Player) bool {
 				SortTiles(newCombo)
 				state.Table[i] = newCombo
 				p.Hand[hIdx] = Tile{Value: 0, Color: -1}
-				fmt.Printf("🤖 %s remplace un Joker sur la table par %s.\n", p.Name, FormatTile(handTile))
-				return true
+				state.Logger.Log("🤖 %s remplace un Joker sur la table par %s.", p.Name, FormatTile(handTile))
+				return true // Joker replaced, return
 			}
 		}
 
@@ -1042,7 +1055,7 @@ func (state *GameState) LiberateJokers(p *Player) bool {
 			if IsValidCombination(newCombo) {
 				state.Table[i] = newCombo
 				p.Hand = append(p.Hand, Tile{Value: 0, Color: -1})
-				fmt.Printf("🤖 %s libère un Joker (combinaison de %d tuiles).\n", p.Name, len(combo))
+				state.Logger.Log("🤖 %s libère un Joker (combinaison de %d tuiles).", p.Name, len(combo))
 				return true
 			}
 		}
@@ -1120,9 +1133,9 @@ func (state *GameState) TryMergeCombos() bool {
 			merged = append(merged, state.Table[j]...)
 			SortTiles(merged)
 			if IsValidCombination(merged) {
-				state.Table[i] = merged
+				state.Table[i] = merged // Replace the first combo with the merged one
 				state.Table = append(state.Table[:j], state.Table[j+1:]...)
-				fmt.Println(T("ai_merge"))
+				state.Logger.Log(T("ai_merge"))
 				return true
 			}
 		}
@@ -1155,7 +1168,7 @@ func (state *GameState) TryStealFromTable(p *Player) bool {
 							state.Table = append(state.Table, testCombo)
 							t1, t2 := p.Hand[h1], p.Hand[h2]
 							p.Hand = removeTiles(p.Hand, Combination{t1, t2})
-							fmt.Printf("🤖 %s utilise %s de la table avec deux tuiles de sa main.\n", p.Name, FormatTile(tileToSteal))
+							state.Logger.Log("🤖 %s utilise %s de la table avec deux tuiles de sa main.", p.Name, FormatTile(tileToSteal))
 							return true
 						}
 					}

@@ -211,8 +211,8 @@ func setTileAt(grid *fyne.Container, index int, val int, col grummi.Color) { // 
 		delete(cellMap, cellStack.Objects[1])
 	}
 
-	tile := &grummi.Tile{Value: val, Color: col} // Use grummi.Tile
-	tileVisual := NewDragTile(tile, overlay, cellStack, grid, index)
+	tile := &grummi.Tile{Value: val, Color: col}                     // Use grummi.Tile
+	tileVisual := NewDragTile(tile, overlay, cellStack, grid, index) // Pass the actual grummi.Tile
 
 	// 4. Also register the tile itself in the cellMap
 	// so that handleDrop recognizes it as a valid target (occupied slot)
